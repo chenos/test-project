@@ -1,4 +1,4 @@
-import { Home, Building2 } from 'lucide-react';
+import { Home, Building2, UsersRound } from 'lucide-react';
 import {
   defineAppRoutes,
   defineSettingsRoutes,
@@ -10,7 +10,7 @@ const appRoutes: AppClientRouteContribution = defineAppRoutes([
     name: 'customers',
     path: '/customers',
     auth: 'required',
-    authz: 'unrestricted',
+    authz: { resource: { type: 'page', id: 'customers' }, action: 'access' },
     navigation: { title: 'navigation.customers', icon: Building2 },
     componentLoader: () => import('./pages/customers/index.js'),
     children: [
@@ -29,6 +29,11 @@ const appRoutes: AppClientRouteContribution = defineAppRoutes([
         path: ':customerId',
         componentLoader: () => import('./pages/customers/detail.js'),
         children: [
+          {
+            name: 'customer-transfer',
+            path: 'transfer',
+            componentLoader: () => import('./pages/customers/transfer.js'),
+          },
           {
             name: 'customer-detail-edit',
             path: 'edit',
@@ -107,7 +112,15 @@ const appRoutes: AppClientRouteContribution = defineAppRoutes([
   },
 ]);
 
-const settingsRoutes: AppClientRouteContribution = defineSettingsRoutes([]);
+const settingsRoutes: AppClientRouteContribution = defineSettingsRoutes([
+  {
+    name: 'crm-teams',
+    path: '/crm-teams',
+    authz: 'unrestricted',
+    navigation: { title: 'navigation.crmTeams', icon: UsersRound },
+    componentLoader: () => import('./pages/crm-teams/index.js'),
+  },
+]);
 
 const routes: readonly AppClientRouteContribution[] = [
   appRoutes,

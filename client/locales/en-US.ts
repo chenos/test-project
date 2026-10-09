@@ -1,10 +1,12 @@
 import type { LocaleResource } from '@nocobase/i18n';
 import customerCopy from './customers-en.js';
+import crmCopy from './crm-en.js';
 import deviceApprovalEnUS from '@/extensions/nocobase-device-approval/locales/en-US';
 import inboxEnUS from '@/extensions/nocobase-inbox/locales/en-US';
 
 const enUS = {
   ...customerCopy,
+  ...crmCopy,
   // The UI Library block of the `/device` page; the keys below may reword it.
   ...deviceApprovalEnUS,
   // The UI Library block of the `/inbox` page; the keys below may reword it.

@@ -33,6 +33,10 @@ vi.mock('@nocobase/app-client', async (original) => ({
 vi.mock('@nocobase/app-plugin-authentication/client', () => ({
   useAuthentication: () => ({ session: { user: { id: 'admin' } }, refresh }),
 }));
+vi.mock('@nocobase/app-plugin-authorization/client', () => ({
+  useCan: () => ({ can: true, isPending: false }),
+  useAuthorizationRevision: () => 0,
+}));
 const runtime = await createTestI18nRuntime({
   application: { namespace: metadata.name, resources: enUS },
 });
@@ -98,6 +102,8 @@ beforeEach(() => {
       if (path === 'customerOwners')
         return Promise.resolve(list([{ id: 'admin', name: 'Admin' }]));
       if (path === 'customers/c1') return Promise.resolve({ data: customer });
+      if (path === 'customers/c1/transferEligibility')
+        return Promise.resolve({ data: { eligible: true } });
       return Promise.resolve(list([]));
     },
   );

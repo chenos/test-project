@@ -1,5 +1,6 @@
 import {
   authenticationToken,
+  userAdministrationServiceToken,
   type AuthEnv,
 } from '@nocobase/app-plugin-authentication/server';
 import {
@@ -19,7 +20,8 @@ import {
   type AppApiRouteContribution,
 } from '@nocobase/app-server/router';
 import { databaseManagerToken } from '@nocobase/db';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { crmPolicies } from './crm-authorization.js';
 import {
   CustomerService,
   CustomerNotFound,
@@ -32,6 +34,8 @@ import {
   PageMeta,
   CustomerBody,
   CustomerPatch,
+  OwnerTransferBody,
+  EligibilitySchema,
   CustomerQuery,
   ContactBody,
   ContactPatch,
@@ -45,26 +49,40 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
     const router = new Hono<AuthEnv & AuthorizationEnv>();
     const auth = app.container.resolve(authenticationToken);
     const authz = app.container.resolve(authorizationToken);
-    const service = new CustomerService(
-      app.container.resolve(databaseManagerToken),
-    );
-    // A closed administrator boundary until PM-6 supplies the agreed team/ownership scopes.
+    const db = app.container.resolve(databaseManagerToken);
+    const users = app.container.resolve(userAdministrationServiceToken);
+    async function execute<T>(
+      c: Context<AuthEnv & AuthorizationEnv>,
+      resource: string,
+      action: string,
+      collections: string[],
+      run: (service: CustomerService) => Promise<T>,
+    ) {
+      const policies = await crmPolicies(
+        c.get('authz'),
+        resource,
+        action,
+        collections,
+      );
+      return db.transaction((connection) =>
+        run(
+          new CustomerService(
+            connection,
+            policies,
+            users.withConnection(connection),
+          ),
+        ),
+      );
+    }
     const protectedPaths = ['/customers', '/customers/*', '/customerOwners'];
     for (const path of protectedPaths) {
-      router.use(path, auth.required(), authz.middleware(), async (c, next) => {
-        if (!(await c.get('authz').snapshot()).unrestricted) {
-          throw new ApiError({
-            status: 'PERMISSION_DENIED',
-            reason: 'CUSTOMER_ADMIN_REQUIRED',
-            domain: 'customers',
-            message: 'Customer administration requires unrestricted access.',
-          });
-        }
-        await next();
-      });
+      router.use(path, auth.required(), authz.middleware());
     }
     router.onError((error) => {
-      if (error instanceof CustomerNotFound)
+      if (
+        error instanceof CustomerNotFound ||
+        ('code' in error && error.code === 'RECORD_NOT_FOUND')
+      )
         throw new ApiError({
           status: 'NOT_FOUND',
           reason: 'CUSTOMER_RECORD_NOT_FOUND',
@@ -107,7 +125,11 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       apiValidator('query', ListQuery),
       async (c) => {
         const q = c.req.valid('query');
-        return c.json(await service.owners(q.page, q.pageSize));
+        return c.json(
+          await execute(c, 'crm.customerOwners', 'view', ['user'], (s) =>
+            s.owners(q.page, q.pageSize),
+          ),
+        );
       },
     );
     router.get(
@@ -122,7 +144,12 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
         },
       }),
       apiValidator('query', CustomerQuery),
-      async (c) => c.json(await service.list(c.req.valid('query'))),
+      async (c) =>
+        c.json(
+          await execute(c, 'crm.customers', 'view', ['customers'], (s) =>
+            s.list(c.req.valid('query')),
+          ),
+        ),
     );
     router.post(
       '/customers',
@@ -136,9 +163,12 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       async (c) =>
         c.json(
           {
-            data: await service.create(
-              c.req.valid('json'),
-              c.get('auth')!.user.id,
+            data: await execute(
+              c,
+              'crm.customers',
+              'create',
+              ['customers', 'user'],
+              (s) => s.create(c.req.valid('json'), c.get('auth')!.user.id),
             ),
           },
           201,
@@ -154,7 +184,11 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       }),
       apiValidator('param', CustomerParams),
       async (c) =>
-        c.json({ data: await service.get(c.req.valid('param').customerId) }),
+        c.json({
+          data: await execute(c, 'crm.customers', 'view', ['customers'], (s) =>
+            s.get(c.req.valid('param').customerId),
+          ),
+        }),
     );
     router.patch(
       '/customers/:customerId',
@@ -168,9 +202,8 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       apiValidator('json', CustomerPatch),
       async (c) =>
         c.json({
-          data: await service.update(
-            c.req.valid('param').customerId,
-            c.req.valid('json'),
+          data: await execute(c, 'crm.customers', 'edit', ['customers'], (s) =>
+            s.update(c.req.valid('param').customerId, c.req.valid('json')),
           ),
         }),
     );
@@ -190,10 +223,17 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       async (c) => {
         const q = c.req.valid('query');
         return c.json(
-          await service.listContacts(
-            c.req.valid('param').customerId,
-            q.page,
-            q.pageSize,
+          await execute(
+            c,
+            'crm.contacts',
+            'view',
+            ['customers', 'contacts'],
+            (s) =>
+              s.listContacts(
+                c.req.valid('param').customerId,
+                q.page,
+                q.pageSize,
+              ),
           ),
         );
       },
@@ -211,10 +251,17 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       async (c) =>
         c.json(
           {
-            data: await service.createContact(
-              c.req.valid('param').customerId,
-              c.req.valid('json'),
-              c.get('auth')!.user.id,
+            data: await execute(
+              c,
+              'crm.contacts',
+              'create',
+              ['customers', 'contacts'],
+              (s) =>
+                s.createContact(
+                  c.req.valid('param').customerId,
+                  c.req.valid('json'),
+                  c.get('auth')!.user.id,
+                ),
             ),
           },
           201,
@@ -232,7 +279,13 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       async (c) => {
         const p = c.req.valid('param');
         return c.json({
-          data: await service.getContact(p.customerId, p.contactId),
+          data: await execute(
+            c,
+            'crm.contacts',
+            'view',
+            ['customers', 'contacts'],
+            (s) => s.getContact(p.customerId, p.contactId),
+          ),
         });
       },
     );
@@ -249,10 +302,70 @@ export const customerApiRoutes: AppApiRouteContribution<Application> =
       async (c) => {
         const p = c.req.valid('param');
         return c.json({
-          data: await service.updateContact(
-            p.customerId,
-            p.contactId,
-            c.req.valid('json'),
+          data: await execute(
+            c,
+            'crm.contacts',
+            'edit',
+            ['customers', 'contacts'],
+            (s) =>
+              s.updateContact(p.customerId, p.contactId, c.req.valid('json')),
+          ),
+        });
+      },
+    );
+    router.get(
+      '/customers/:customerId/transferEligibility',
+      describeRoute({
+        tags: ['Customers'],
+        summary: 'Check customer owner transfer eligibility',
+        operationId: 'getCustomerTransferEligibility',
+        responses: {
+          200: dataResponse(EligibilitySchema),
+          ...apiErrorResponses,
+        },
+      }),
+      apiValidator('param', CustomerParams),
+      async (c) => {
+        try {
+          await execute(
+            c,
+            'crm.customers',
+            'transfer',
+            ['customers', 'user'],
+            (s) => s.get(c.req.valid('param').customerId),
+          );
+          return c.json({ data: { eligible: true } });
+        } catch (e) {
+          if (e instanceof CustomerNotFound)
+            return c.json({ data: { eligible: false } });
+          throw e;
+        }
+      },
+    );
+    router.post(
+      '/customers/:customerId/transferOwner',
+      describeRoute({
+        tags: ['Customers'],
+        summary: 'Transfer customer ownership',
+        operationId: 'transferCustomerOwner',
+        responses: { 200: dataResponse(CustomerSchema), ...patchErrors },
+      }),
+      apiValidator('param', CustomerParams),
+      apiValidator('json', OwnerTransferBody),
+      async (c) => {
+        const input = c.req.valid('json');
+        return c.json({
+          data: await execute(
+            c,
+            'crm.customers',
+            'transfer',
+            ['customers', 'user'],
+            (s) =>
+              s.transfer(
+                c.req.valid('param').customerId,
+                input.ownerId,
+                input.version,
+              ),
           ),
         });
       },

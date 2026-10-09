@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseManager, RepositoryFilter } from '@nocobase/db';
+import type {
+  DatabaseConnection,
+  RepositoryFilter,
+  RepositoryPolicy,
+} from '@nocobase/db';
+import type { UserAdministrationService } from '@nocobase/app-plugin-authentication/server';
+import { CustomerSchema, ContactSchema } from '../routes/schemas.js';
+import { serializeDates } from './serialize-dates.js';
 import type { z } from 'zod';
 import type {
   CustomerBody,
@@ -11,46 +18,26 @@ import type {
   ContactView,
 } from '../routes/schemas.js';
 
-// Drivers can return timezone-less UTC datetimes. Keep the HTTP contract explicit and
-// avoid interpreting SQLite timestamps in the server or browser's local timezone.
-function serializeDates<T extends { createdAt: string; updatedAt: string }>(
-  row: T,
-): T {
-  const iso = (value: string) =>
-    new Date(
-      /[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`,
-    ).toISOString();
-  return {
-    ...row,
-    createdAt: iso(row.createdAt),
-    updatedAt: iso(row.updatedAt),
-  };
-}
-
 export class CustomerNotFound extends Error {}
 export class InvalidOwner extends Error {}
 
-// PM-6 adds business scopes. Until then routes require unrestricted administration;
-// the repositories below cannot be reached by a merely signed-in user.
 export class CustomerService {
-  constructor(private readonly db: DatabaseManager) {}
+  constructor(
+    private readonly db: DatabaseConnection,
+    private readonly policies: Record<string, RepositoryPolicy>,
+    private readonly users: UserAdministrationService,
+  ) {}
 
   private customers() {
-    return this.db.repository<CustomerView>('customers').withPolicy({
-      read: true,
-      create: true,
-      update: true,
-      delete: false,
-    });
+    return this.db
+      .repository<CustomerView>('customers')
+      .withPolicy(this.policies.customers);
   }
 
   private contacts() {
-    return this.db.repository<ContactView>('contacts').withPolicy({
-      read: true,
-      create: true,
-      update: true,
-      delete: false,
-    });
+    return this.db
+      .repository<ContactView>('contacts')
+      .withPolicy(this.policies.contacts);
   }
 
   async list(input: z.infer<typeof CustomerQuery>) {
@@ -97,7 +84,7 @@ export class CustomerService {
       repository.count({ filter }),
     ]);
     return {
-      data: data.map(serializeDates),
+      data: data.map((row) => CustomerSchema.parse(serializeDates(row))),
       meta: { page: input.page, pageSize: input.pageSize, total },
     };
   }
@@ -125,25 +112,40 @@ export class CustomerService {
           .include('owner', (o) => o.fields('id', 'name')),
     });
     if (!row) throw new CustomerNotFound();
-    return serializeDates(row);
+    return CustomerSchema.parse(serializeDates(row));
   }
 
   async owners(page: number, pageSize: number) {
-    const users = this.db.repository<{ id: string; name: string }>('user');
-    const [data, total] = await Promise.all([
-      users.findMany({
-        select: (s) => s.fields('id', 'name'),
-        sort: (s) => s.field('id').asc(),
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-      }),
-      users.count(),
-    ]);
-    return { data, meta: { page, pageSize, total } };
+    const candidates = await this.db
+      .repository<{ id: string }>('user')
+      .withPolicy(this.policies.user)
+      .findMany({ select: (s) => s.fields('id') });
+    if (!candidates.length)
+      return { data: [], meta: { page, pageSize, total: 0 } };
+    const result = await this.users.list({
+      userIds: candidates.flatMap((u) =>
+        typeof u.id === 'string' ? [u.id] : [],
+      ),
+      status: 'enabled',
+      page,
+      pageSize,
+    });
+    return {
+      data: result.items.map(({ id, name }) => ({ id, name })),
+      meta: { page, pageSize, total: result.total },
+    };
   }
 
   private async assertOwner(ownerId: string) {
-    if (!(await this.db.repository('user').exists({ filter: { id: ownerId } })))
+    if (
+      !(await this.db
+        .repository('user')
+        .withPolicy(this.policies.user)
+        .exists({ filter: { id: ownerId } }))
+    )
+      throw new InvalidOwner();
+    const user = await this.users.get(ownerId);
+    if (!user || user.disabledAt || user.kind !== 'person')
       throw new InvalidOwner();
   }
 
@@ -166,17 +168,28 @@ export class CustomerService {
         updatedAt: now.toISOString(),
       },
     });
+    if (!result.record.id) throw new CustomerNotFound();
     return this.get(result.record.id);
   }
 
   async update(customerId: string, input: z.infer<typeof CustomerPatch>) {
     await this.get(customerId);
-    if (input.ownerId) await this.assertOwner(input.ownerId);
     const { version, ...values } = input;
     await this.customers().updateOne({
       filter: { id: customerId },
       ifVersion: version,
       values: { ...values, updatedAt: new Date().toISOString() },
+    });
+    return this.get(customerId);
+  }
+
+  async transfer(customerId: string, ownerId: string, version: number) {
+    await this.get(customerId);
+    await this.assertOwner(ownerId);
+    await this.customers().updateOne({
+      filter: { id: customerId },
+      ifVersion: version,
+      values: { ownerId, updatedAt: new Date().toISOString() },
     });
     return this.get(customerId);
   }
@@ -194,7 +207,10 @@ export class CustomerService {
       }),
       repository.count({ filter }),
     ]);
-    return { data: data.map(serializeDates), meta: { page, pageSize, total } };
+    return {
+      data: data.map((row) => ContactSchema.parse(serializeDates(row))),
+      meta: { page, pageSize, total },
+    };
   }
 
   async getContact(customerId: string, contactId: string) {
@@ -203,7 +219,7 @@ export class CustomerService {
       filter: { id: contactId, customerId },
     });
     if (!row) throw new CustomerNotFound();
-    return serializeDates(row);
+    return ContactSchema.parse(serializeDates(row));
   }
 
   async createContact(
@@ -226,7 +242,7 @@ export class CustomerService {
         updatedAt: now,
       },
     });
-    return serializeDates(result.record);
+    return ContactSchema.parse(serializeDates(result.record));
   }
 
   async updateContact(
@@ -241,6 +257,6 @@ export class CustomerService {
       ifVersion: version,
       values: { ...values, updatedAt: new Date().toISOString() },
     });
-    return serializeDates(result.record);
+    return ContactSchema.parse(serializeDates(result.record));
   }
 }

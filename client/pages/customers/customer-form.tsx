@@ -43,7 +43,7 @@ export function CustomerForm({
   const api = useApiClient();
   const toaster = useToaster();
   const { session } = useAuthentication();
-  const owners = useOwners();
+  const owners = useOwners('customerOwners', !customer);
   const [serverError, setServerError] = useState<unknown>();
   const [duplicate, setDuplicate] = useState<{
     name: string;
@@ -121,6 +121,7 @@ export function CustomerForm({
         method: customer ? 'PATCH' : 'POST',
         json: {
           ...values,
+          ...(customer ? { ownerId: undefined } : {}),
           grade: values.grade === 'none' ? null : values.grade,
           industry: values.industry || null,
           size: values.size || null,
@@ -263,13 +264,26 @@ export function CustomerForm({
                   onBlur={field.onBlur}
                   required
                   invalid={fieldState.invalid}
-                  disabled={disabled || !owners.data}
-                  options={(owners.data ?? []).map((o) => ({
+                  disabled={Boolean(customer) || disabled || !owners.data}
+                  options={(customer
+                    ? [
+                        {
+                          id: customer.ownerId,
+                          name: customer.owner?.name ?? customer.ownerId,
+                        },
+                      ]
+                    : (owners.data ?? [])
+                  ).map((o) => ({
                     value: o.id,
                     label: o.name,
                   }))}
                 />
                 <FieldError errors={[fieldState.error]} />
+                {customer ? (
+                  <p className='text-sm text-muted-foreground'>
+                    {t('crmTeams.ownersOnly')}
+                  </p>
+                ) : null}
               </Field>
             )}
           />

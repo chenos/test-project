@@ -1,10 +1,12 @@
 import type { AppResource } from './en-US.js';
 import customerCopy from './customers-zh.js';
+import crmCopy from './crm-zh.js';
 import deviceApprovalZhCN from '@/extensions/nocobase-device-approval/locales/zh-CN';
 import inboxZhCN from '@/extensions/nocobase-inbox/locales/zh-CN';
 
 const zhCN: AppResource = {
   ...customerCopy,
+  ...crmCopy,
   // The UI Library block of the `/device` page; the keys below may reword it.
   ...deviceApprovalZhCN,
   // The UI Library block of the `/inbox` page; the keys below may reword it.

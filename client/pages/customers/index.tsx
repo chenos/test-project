@@ -1,4 +1,5 @@
 import { useTranslation } from '@nocobase/i18n/client';
+import { useCan } from '@nocobase/app-plugin-authorization/client';
 import { ArrowDown, ArrowUp, Plus } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router';
@@ -23,6 +24,14 @@ import type { Customer, ListResult } from './types.js';
 export default function CustomersPage() {
   useReturnFocus();
   const { t, i18n } = useTranslation();
+  const createAccess = useCan({
+    resource: { type: 'composite', id: 'crm.customers' },
+    action: 'create',
+  });
+  const editAccess = useCan({
+    resource: { type: 'composite', id: 'crm.customers' },
+    action: 'edit',
+  });
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
   const { searchParams, search, text, inputProps, updateParams, clear } =
@@ -99,7 +108,7 @@ export default function CustomersPage() {
       p.delete('page');
     });
   }
-  const newAction = (
+  const newAction = createAccess.can ? (
     <Button
       nativeButton={false}
       render={<Link to={{ pathname: 'new', search: location.search }} />}
@@ -107,7 +116,7 @@ export default function CustomersPage() {
       <Plus data-icon='inline-start' />
       {t('customers.new')}
     </Button>
-  );
+  ) : null;
   const columns: ColumnDef<Customer>[] = [
     {
       accessorKey: 'companyName',
@@ -178,23 +187,24 @@ export default function CustomersPage() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row }) => (
-        <Button
-          variant='ghost'
-          size='sm'
-          nativeButton={false}
-          render={
-            <Link
-              to={{
-                pathname: `edit/${row.original.id}`,
-                search: location.search,
-              }}
-            />
-          }
-        >
-          {t('customers.edit')}
-        </Button>
-      ),
+      cell: ({ row }) =>
+        editAccess.can ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            nativeButton={false}
+            render={
+              <Link
+                to={{
+                  pathname: `edit/${row.original.id}`,
+                  search: location.search,
+                }}
+              />
+            }
+          >
+            {t('customers.edit')}
+          </Button>
+        ) : null,
     },
   ];
   return (

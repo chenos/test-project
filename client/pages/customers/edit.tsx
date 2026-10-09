@@ -1,4 +1,6 @@
 import { ApiClientError } from '@nocobase/app-client';
+import { useCan } from '@nocobase/app-plugin-authorization/client';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useTranslation } from '@nocobase/i18n/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -27,6 +29,27 @@ import type { Customer, CustomerContext } from './types.js';
 
 export default function CustomerEditPage() {
   const { customerId } = useParams();
+  const { t } = useTranslation();
+  const access = useCan({
+    resource: { type: 'composite', id: 'crm.customers' },
+    action: customerId ? 'edit' : 'create',
+  });
+  if (access.isPending || !access.can)
+    return (
+      <RouteChildPage>
+        <PageContainer>
+          {access.isPending ? (
+            <LoadingRows />
+          ) : (
+            <Alert variant='destructive'>
+              <AlertDescription>
+                {t('customers.errors.forbidden')}
+              </AlertDescription>
+            </Alert>
+          )}
+        </PageContainer>
+      </RouteChildPage>
+    );
   return customerId ? (
     <ExistingCustomer customerId={customerId} />
   ) : (

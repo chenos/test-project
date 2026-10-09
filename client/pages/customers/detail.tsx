@@ -1,4 +1,5 @@
 import { ApiClientError } from '@nocobase/app-client';
+import { useCan } from '@nocobase/app-plugin-authorization/client';
 import { useTranslation } from '@nocobase/i18n/client';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -18,6 +19,11 @@ import { RouteChildPage } from '@/components/route-child-page';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { DataTable } from '@/components/data-table';
 import {
   ErrorFeedback,
@@ -40,6 +46,22 @@ export default function CustomerDetailPage() {
   useReturnFocus();
   const { customerId = '' } = useParams();
   const { t } = useTranslation();
+  const editAccess = useCan({
+    resource: { type: 'composite', id: 'crm.customers' },
+    action: 'edit',
+  });
+  const transferAccess = useCan({
+    resource: { type: 'composite', id: 'crm.customers' },
+    action: 'transfer',
+  });
+  const contactCreate = useCan({
+    resource: { type: 'composite', id: 'crm.contacts' },
+    action: 'create',
+  });
+  const contactEdit = useCan({
+    resource: { type: 'composite', id: 'crm.contacts' },
+    action: 'edit',
+  });
   const location = useLocation();
   const parent = useOutletContext<CustomerContext>();
   const [params, setParams] = useSearchParams();
@@ -115,7 +137,7 @@ export default function CustomerDetailPage() {
   const row = customer.data?.data;
   const backParams = new URLSearchParams(location.search);
   backParams.delete('contactsPage');
-  const newContact = (
+  const newContact = contactCreate.can ? (
     <Button
       nativeButton={false}
       render={
@@ -125,7 +147,7 @@ export default function CustomerDetailPage() {
       <Plus data-icon='inline-start' />
       {t('contacts.new')}
     </Button>
-  );
+  ) : null;
   const columns: ColumnDef<Contact>[] = [
     {
       accessorKey: 'name',
@@ -150,23 +172,24 @@ export default function CustomerDetailPage() {
     {
       id: 'actions',
       header: '',
-      cell: ({ row: r }) => (
-        <Button
-          variant='ghost'
-          size='sm'
-          nativeButton={false}
-          render={
-            <Link
-              to={{
-                pathname: `contacts/${r.original.id}/edit`,
-                search: location.search,
-              }}
-            />
-          }
-        >
-          {t('customers.edit')}
-        </Button>
-      ),
+      cell: ({ row: r }) =>
+        contactEdit.can ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            nativeButton={false}
+            render={
+              <Link
+                to={{
+                  pathname: `contacts/${r.original.id}/edit`,
+                  search: location.search,
+                }}
+              />
+            }
+          >
+            {t('customers.edit')}
+          </Button>
+        ) : null,
     },
   ];
   return (
@@ -177,16 +200,25 @@ export default function CustomerDetailPage() {
           title={row?.companyName ?? t('customers.basic')}
           actions={
             row ? (
-              <Button
-                data-customer-return-focus
-                variant='outline'
-                nativeButton={false}
-                render={
-                  <Link to={{ pathname: 'edit', search: location.search }} />
-                }
-              >
-                {t('customers.edit')}
-              </Button>
+              <div className='flex flex-wrap gap-2'>
+                {transferAccess.can ? (
+                  <TransferAction customerId={customerId} />
+                ) : null}
+                {editAccess.can ? (
+                  <Button
+                    data-customer-return-focus
+                    variant='outline'
+                    nativeButton={false}
+                    render={
+                      <Link
+                        to={{ pathname: 'edit', search: location.search }}
+                      />
+                    }
+                  >
+                    {t('customers.edit')}
+                  </Button>
+                ) : null}
+              </div>
             ) : undefined
           }
         />
@@ -264,5 +296,36 @@ export default function CustomerDetailPage() {
         <Outlet context={context} />
       </PageContainer>
     </RouteChildPage>
+  );
+}
+
+function TransferAction({ customerId }: { customerId: string }) {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const result = useResource<{ data: { eligible: boolean } }>(
+    `customers/${encodeURIComponent(customerId)}/transferEligibility`,
+  );
+  if (result.data?.data.eligible)
+    return (
+      <Button
+        variant='outline'
+        nativeButton={false}
+        render={<Link to={{ pathname: 'transfer', search: location.search }} />}
+      >
+        {t('crmTeams.transfer')}
+      </Button>
+    );
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span tabIndex={0} className='inline-flex' />}>
+        <Button variant='outline' disabled>
+          {result.loading ? <Spinner data-icon='inline-start' /> : null}
+          {t('crmTeams.transfer')}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {t(result.loading ? 'status.loading' : 'crmTeams.transferUnavailable')}
+      </TooltipContent>
+    </Tooltip>
   );
 }

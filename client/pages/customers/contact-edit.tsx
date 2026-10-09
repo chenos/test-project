@@ -1,4 +1,5 @@
 import { invalidFields } from './field-errors.js';
+import { useCan } from '@nocobase/app-plugin-authorization/client';
 import { ApiClientError, useApiClient, useToaster } from '@nocobase/app-client';
 import { useTranslation } from '@nocobase/i18n/client';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,6 +26,10 @@ import type { Contact, CustomerContext } from './types.js';
 export default function ContactEditPage() {
   const { t } = useTranslation();
   const { customerId = '', contactId } = useParams();
+  const access = useCan({
+    resource: { type: 'composite', id: 'crm.contacts' },
+    action: contactId ? 'edit' : 'create',
+  });
   const pendingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [ready, setReady] = useState(false);
@@ -37,14 +42,26 @@ export default function ContactEditPage() {
       title={t(contactId ? 'contacts.editTitle' : 'contacts.new')}
       className='sm:max-w-md'
       beforeClose={() => !pendingRef.current}
-      footer={<ContactFooter submitting={submitting} ready={ready} />}
+      footer={
+        access.can ? (
+          <ContactFooter submitting={submitting} ready={ready} />
+        ) : undefined
+      }
     >
-      <ContactBody
-        customerId={customerId}
-        contactId={contactId}
-        onReady={setReady}
-        onPending={onPending}
-      />
+      {access.isPending ? (
+        <LoadingRows />
+      ) : !access.can ? (
+        <Alert variant='destructive'>
+          <AlertDescription>{t('customers.errors.forbidden')}</AlertDescription>
+        </Alert>
+      ) : (
+        <ContactBody
+          customerId={customerId}
+          contactId={contactId}
+          onReady={setReady}
+          onPending={onPending}
+        />
+      )}
     </RouteDialog>
   );
 }
