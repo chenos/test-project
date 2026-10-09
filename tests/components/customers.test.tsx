@@ -307,15 +307,19 @@ it('shows a created customer immediately without waiting for a second list reque
       ? new Promise(() => {})
       : original(request),
   );
-  renderAt('/customers/new');
+  const router = renderAt('/customers/new');
   await userEvent.type(await screen.findByLabelText(/Company name/), 'Example');
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled(),
   );
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-  expect(
-    await screen.findByRole('link', { name: 'Example' }),
-  ).toBeInTheDocument();
+  // The covering route can replace table elements while navigation commits.
+  // Query the current DOM after returning, rather than retaining a stale node.
+  await waitFor(() => {
+    expect(router.state.location.pathname).toBe('/customers');
+    expect(screen.getByRole('link', { name: 'Example' })).toBeInTheDocument();
+    expect(listReads).toBeGreaterThan(1);
+  });
   await waitFor(() =>
     expect(
       screen.getByRole('textbox', { name: 'Search company names' }),
