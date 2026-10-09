@@ -211,13 +211,25 @@ function ContactForm({
       onPending(false);
       await close();
     } catch (e) {
-      if (invalidFields(e).includes('email')) {
-        form.setError(
-          'email',
-          { type: 'server', message: t('customers.errors.invalidEmail') },
-          { shouldFocus: true },
-        );
-        window.setTimeout(() => form.setFocus('email'), 0);
+      const fields = invalidFields(e).filter(
+        (field): field is 'name' | 'position' | 'phone' | 'email' =>
+          ['name', 'position', 'phone', 'email'].includes(field),
+      );
+      if (fields.length) {
+        for (const [index, field] of fields.entries())
+          form.setError(
+            field,
+            {
+              type: 'server',
+              message: t(
+                field === 'email'
+                  ? 'customers.errors.invalidEmail'
+                  : 'customers.errors.invalidValue',
+              ),
+            },
+            { shouldFocus: index === 0 },
+          );
+        window.setTimeout(() => form.setFocus(fields[0]), 0);
       } else setError(e);
       if (e instanceof ApiClientError && e.status === 404) parent.reload();
     } finally {

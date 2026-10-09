@@ -3,7 +3,13 @@ import {
   TestI18nProvider,
   createTestI18nRuntime,
 } from '@nocobase/i18n/testing';
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -309,5 +315,120 @@ it('shows a created customer immediately without waiting for a second list reque
   await userEvent.click(screen.getByRole('button', { name: 'Create' }));
   expect(
     await screen.findByRole('link', { name: 'Example' }),
+  ).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      screen.getByRole('textbox', { name: 'Search company names' }),
+    ).toHaveFocus(),
+  );
+});
+
+it('maps a customer field violation inline without exposing server text', async () => {
+  const original = api.request.getMockImplementation()!;
+  api.request.mockImplementation((request) =>
+    request.method === 'POST'
+      ? Promise.reject(
+          new ApiClientError('Invalid', {
+            status: 400,
+            method: 'POST',
+            url: '/api/customers',
+            payload: {
+              error: {
+                fieldViolations: [
+                  {
+                    field: 'body.companyName',
+                    description: 'Internal validator detail',
+                  },
+                ],
+              },
+            },
+          }),
+        )
+      : original(request),
+  );
+  renderAt('/customers/new');
+  const company = await screen.findByLabelText(/Company name/);
+  await userEvent.type(company, 'Example');
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled(),
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  expect(
+    await screen.findByText('Check this value and try again.'),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(company).toHaveFocus());
+  expect(company).toHaveValue('Example');
+  expect(
+    screen.queryByText('Internal validator detail'),
+  ).not.toBeInTheDocument();
+});
+
+it('refreshes the parent after a customer write returns 404 and blocks keyboard resubmission', async () => {
+  const original = api.request.getMockImplementation()!;
+  api.request.mockImplementation((request) =>
+    request.method === 'PATCH'
+      ? Promise.reject(
+          new ApiClientError('Missing', {
+            status: 404,
+            method: 'PATCH',
+            url: '/api/customers/c1',
+          }),
+        )
+      : original(request),
+  );
+  renderAt('/customers/c1/edit');
+  const company = await screen.findByLabelText(/Company name/);
+  const listReads = api.request.mock.calls.filter(
+    ([request]) => request.path === 'customers',
+  ).length;
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText(/This record does not exist/);
+  await waitFor(() =>
+    expect(
+      api.request.mock.calls.filter(([request]) => request.path === 'customers')
+        .length,
+    ).toBeGreaterThan(listReads),
+  );
+  expect(company).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  await act(async () => {
+    fireEvent.submit(company.closest('form')!);
+  });
+  expect(
+    api.request.mock.calls.filter(([request]) => request.method === 'PATCH'),
+  ).toHaveLength(1);
+});
+
+it('maps a contact name violation inline and preserves the dialog', async () => {
+  const original = api.request.getMockImplementation()!;
+  api.request.mockImplementation((request) =>
+    request.method === 'POST'
+      ? Promise.reject(
+          new ApiClientError('Invalid', {
+            status: 400,
+            method: 'POST',
+            url: '/api/customers/c1/contacts',
+            payload: {
+              error: {
+                fieldViolations: [
+                  { field: 'body.name', description: 'Internal detail' },
+                ],
+              },
+            },
+          }),
+        )
+      : original(request),
+  );
+  renderAt('/customers/c1/contacts/new');
+  const name = await screen.findByLabelText(/Name/);
+  await userEvent.type(name, 'Test Contact');
+  await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+  expect(
+    await screen.findByText('Check this value and try again.'),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(name).toHaveFocus());
+  expect(
+    screen.getByRole('dialog', { name: 'New contact' }),
   ).toBeInTheDocument();
 });

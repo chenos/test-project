@@ -24,6 +24,7 @@ export default {
     created: 'Created customer "{{name}}"',
     saved: 'Saved customer "{{name}}"',
     basic: 'Customer information',
+    classification: 'Owner and classification',
     fields: {
       companyName: 'Company name',
       industry: 'Industry',
@@ -38,6 +39,7 @@ export default {
     statuses: { potential: 'Potential', active: 'Active', lost: 'Lost' },
     errors: {
       required: 'Enter a value.',
+      invalidValue: 'Check this value and try again.',
       tooLong: 'The value is too long.',
       invalidEmail: 'Enter a valid email address.',
       failed: 'The request failed. Please try again.',

@@ -40,4 +40,8 @@ pnpm start
 
 测试使用独立数据库，默认 SQLite，可由 `NOCOBASE_TEST_DB_DIALECT` 选择其他受支持方言。客户回归测试位于 `tests/logic/customers-api.test.ts`、`tests/logic/customers-migration.test.ts` 和 `tests/components/customers.test.tsx`，覆盖 CRUD、组合筛选、分页、认证/权限、邮箱校验、联系人归属及并发冲突。
 
+浏览器回归位于 `tests/playwright/customers.test.ts`，启动应用自己的服务端和独立测试数据库，使用框架测试账号及虚构数据，结束时清理数据库，不需要个人登录凭据。先运行 `pnpm build`，在具备 Chromium 系统依赖的环境执行 `pnpm exec playwright install chromium` 和 `pnpm test:e2e`。截图写入 Git 忽略的 `storage/ui-workflow/customers/screenshots/`，不保存会话、录像或 trace。受限环境可通过 `PM2_CHROMIUM_EXECUTABLE` 指定已安装的 Chromium；系统库和中文字体由运行环境提供。中文组合输入由 CDP 模拟，操作系统输入法候选窗仍需人工验收。
+
+`.github/workflows/ci.yml` 在面向 main 的 PR 更新时执行依赖锁定安装、类型、lint、格式、完整测试、生产构建和 Chromium 浏览器回归，并上传虚构数据的截图。以 GitHub Actions 在当前提交上的实际结果为 CI 验证依据；本地通过不代表 PR 检查已通过。
+
 应用模板的完整运行、代理开发及插件管理说明见 [应用指南](docs/application.md)。

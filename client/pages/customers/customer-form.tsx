@@ -10,6 +10,8 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldSet,
+  FieldLegend,
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,6 +21,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { OptionSelect } from './option-select.js';
 import { ErrorFeedback } from './feedback.js';
 import { useOwners } from './use-owners.js';
+import { invalidFields } from './field-errors.js';
 import type { Customer, CustomerStatus, ListResult } from './types.js';
 
 export function CustomerForm({
@@ -27,12 +30,14 @@ export function CustomerForm({
   onCancel,
   onStateChange,
   onLoadLatest,
+  onMissing,
 }: {
   customer?: Customer;
   onSaved: (customer: Customer) => void;
   onCancel: () => void;
   onStateChange: (state: { dirty: boolean; pending: boolean }) => void;
   onLoadLatest: () => void;
+  onMissing: () => void;
 }) {
   const { t } = useTranslation();
   const api = useApiClient();
@@ -134,21 +139,55 @@ export function CustomerForm({
       });
       onSaved(data);
     } catch (error) {
-      if (error instanceof ApiClientError && error.reason === 'INVALID_OWNER')
-        form.setError(
-          'ownerId',
-          { message: t('customers.errors.owner') },
-          { shouldFocus: true },
-        );
-      else setServerError(error);
+      const fields = invalidFields(error).filter(
+        (field): field is keyof z.infer<typeof schema> =>
+          [
+            'companyName',
+            'industry',
+            'size',
+            'source',
+            'ownerId',
+            'status',
+            'grade',
+            'notes',
+          ].includes(field),
+      );
+      if (
+        error instanceof ApiClientError &&
+        error.reason === 'INVALID_OWNER' &&
+        !fields.includes('ownerId')
+      )
+        fields.push('ownerId');
+      if (fields.length) {
+        for (const [index, field] of fields.entries())
+          form.setError(
+            field,
+            {
+              type: 'server',
+              message: t(
+                field === 'ownerId'
+                  ? 'customers.errors.owner'
+                  : 'customers.errors.invalidValue',
+              ),
+            },
+            { shouldFocus: index === 0 },
+          );
+        window.setTimeout(() => form.setFocus(fields[0]), 0);
+      } else setServerError(error);
+      if (error instanceof ApiClientError && error.status === 404) onMissing();
     }
   });
-  const disabled = isSubmitting;
+  const terminal =
+    serverError instanceof ApiClientError &&
+    [403, 404, 409].includes(serverError.status);
+  const disabled = isSubmitting || terminal;
   const textFields = ['companyName', 'industry', 'size', 'source'] as const;
   return (
     <form
       noValidate
-      onSubmit={(e) => void submit(e)}
+      onSubmit={(e) => {
+        if (!terminal) void submit(e);
+      }}
       className='flex flex-col gap-6'
     >
       {serverError ? (
@@ -173,112 +212,123 @@ export function CustomerForm({
       {owners.error ? (
         <ErrorFeedback error={owners.error} retry={owners.reload} />
       ) : null}
-      <FieldGroup>
-        {textFields.map((key) => (
+      <FieldSet>
+        <FieldLegend>{t('customers.basic')}</FieldLegend>
+        <FieldGroup>
+          {textFields.map((key) => (
+            <Controller
+              key={key}
+              control={form.control}
+              name={key}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor={`customer-${key}`}>
+                    {t(`customers.fields.${key}`)}
+                    {key === 'companyName' ? (
+                      <span aria-hidden='true'>*</span>
+                    ) : null}
+                  </FieldLabel>
+                  <Input
+                    {...field}
+                    id={`customer-${key}`}
+                    disabled={disabled}
+                    aria-invalid={fieldState.invalid}
+                    aria-required={key === 'companyName'}
+                  />
+                  <FieldError errors={[fieldState.error]} />
+                </Field>
+              )}
+            />
+          ))}
+        </FieldGroup>
+      </FieldSet>
+      <FieldSet>
+        <FieldLegend>{t('customers.classification')}</FieldLegend>
+        <FieldGroup>
           <Controller
-            key={key}
             control={form.control}
-            name={key}
+            name='ownerId'
             render={({ field, fieldState }) => (
               <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor={`customer-${key}`}>
-                  {t(`customers.fields.${key}`)}
-                  {key === 'companyName' ? (
-                    <span aria-hidden='true'>*</span>
-                  ) : null}
+                <FieldLabel htmlFor='customer-owner'>
+                  {t('customers.fields.ownerId')}{' '}
+                  <span aria-hidden='true'>*</span>
                 </FieldLabel>
-                <Input
-                  {...field}
-                  id={`customer-${key}`}
-                  disabled={disabled}
-                  aria-invalid={fieldState.invalid}
-                  aria-required={key === 'companyName'}
+                <OptionSelect
+                  id='customer-owner'
+                  inputRef={field.ref}
+                  label={t('customers.fields.ownerId')}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  required
+                  invalid={fieldState.invalid}
+                  disabled={disabled || !owners.data}
+                  options={(owners.data ?? []).map((o) => ({
+                    value: o.id,
+                    label: o.name,
+                  }))}
                 />
                 <FieldError errors={[fieldState.error]} />
               </Field>
             )}
           />
-        ))}
-        <Controller
-          control={form.control}
-          name='ownerId'
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor='customer-owner'>
-                {t('customers.fields.ownerId')}{' '}
-                <span aria-hidden='true'>*</span>
-              </FieldLabel>
-              <OptionSelect
-                id='customer-owner'
-                inputRef={field.ref}
-                label={t('customers.fields.ownerId')}
-                value={field.value}
-                onChange={field.onChange}
-                onBlur={field.onBlur}
-                required
-                invalid={fieldState.invalid}
-                disabled={disabled || !owners.data}
-                options={(owners.data ?? []).map((o) => ({
-                  value: o.id,
-                  label: o.name,
-                }))}
-              />
-              <FieldError errors={[fieldState.error]} />
-            </Field>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name='status'
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor='customer-status'>
-                {t('customers.fields.status')} <span aria-hidden='true'>*</span>
-              </FieldLabel>
-              <OptionSelect
-                id='customer-status'
-                inputRef={field.ref}
-                label={t('customers.fields.status')}
-                value={field.value}
-                onChange={field.onChange}
-                onBlur={field.onBlur}
-                required
-                invalid={fieldState.invalid}
-                disabled={disabled}
-                options={(['potential', 'active', 'lost'] as const).map(
-                  (s) => ({ value: s, label: t(`customers.statuses.${s}`) }),
-                )}
-              />
-              <FieldError errors={[fieldState.error]} />
-            </Field>
-          )}
-        />
-        <Controller
-          control={form.control}
-          name='grade'
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor='customer-grade'>
-                {t('customers.fields.grade')}
-              </FieldLabel>
-              <OptionSelect
-                id='customer-grade'
-                inputRef={field.ref}
-                label={t('customers.fields.grade')}
-                value={field.value}
-                onChange={field.onChange}
-                onBlur={field.onBlur}
-                invalid={fieldState.invalid}
-                disabled={disabled}
-                options={[
-                  { value: 'none', label: t('customers.none') },
-                  ...['A', 'B', 'C'].map((v) => ({ value: v, label: v })),
-                ]}
-              />
-              <FieldError errors={[fieldState.error]} />
-            </Field>
-          )}
-        />
+          <Controller
+            control={form.control}
+            name='status'
+            render={({ field, fieldState }) => (
+              <Field data-invalid={fieldState.invalid}>
+                <FieldLabel htmlFor='customer-status'>
+                  {t('customers.fields.status')}{' '}
+                  <span aria-hidden='true'>*</span>
+                </FieldLabel>
+                <OptionSelect
+                  id='customer-status'
+                  inputRef={field.ref}
+                  label={t('customers.fields.status')}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  required
+                  invalid={fieldState.invalid}
+                  disabled={disabled}
+                  options={(['potential', 'active', 'lost'] as const).map(
+                    (s) => ({ value: s, label: t(`customers.statuses.${s}`) }),
+                  )}
+                />
+                <FieldError errors={[fieldState.error]} />
+              </Field>
+            )}
+          />
+          <Controller
+            control={form.control}
+            name='grade'
+            render={({ field, fieldState }) => (
+              <Field data-invalid={fieldState.invalid}>
+                <FieldLabel htmlFor='customer-grade'>
+                  {t('customers.fields.grade')}
+                </FieldLabel>
+                <OptionSelect
+                  id='customer-grade'
+                  inputRef={field.ref}
+                  label={t('customers.fields.grade')}
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  invalid={fieldState.invalid}
+                  disabled={disabled}
+                  options={[
+                    { value: 'none', label: t('customers.none') },
+                    ...['A', 'B', 'C'].map((v) => ({ value: v, label: v })),
+                  ]}
+                />
+                <FieldError errors={[fieldState.error]} />
+              </Field>
+            )}
+          />
+        </FieldGroup>
+      </FieldSet>
+      <FieldGroup>
         <Controller
           control={form.control}
           name='notes'
@@ -302,7 +352,7 @@ export function CustomerForm({
         <Button
           variant='outline'
           type='button'
-          disabled={disabled}
+          disabled={isSubmitting}
           onClick={onCancel}
         >
           {t('actions.cancel')}
@@ -316,8 +366,8 @@ export function CustomerForm({
               [403, 404, 409].includes(serverError.status))
           }
         >
-          {disabled ? <Spinner data-icon='inline-start' /> : null}
-          {disabled
+          {isSubmitting ? <Spinner data-icon='inline-start' /> : null}
+          {isSubmitting
             ? t('customers.saving')
             : customer
               ? t('actions.save')

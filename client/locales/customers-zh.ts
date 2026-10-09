@@ -25,6 +25,7 @@ const zh: LocaleResource<typeof copy> = {
     created: '已创建客户“{{name}}”',
     saved: '已保存客户“{{name}}”',
     basic: '客户资料',
+    classification: '负责人和分类',
     fields: {
       companyName: '公司名',
       industry: '行业',
@@ -39,6 +40,7 @@ const zh: LocaleResource<typeof copy> = {
     statuses: { potential: '潜在', active: '合作中', lost: '已流失' },
     errors: {
       required: '请填写此项。',
+      invalidValue: '请检查此项后重试。',
       tooLong: '内容过长，请缩短。',
       invalidEmail: '请填写有效的邮箱地址。',
       failed: '请求失败，请重试。',

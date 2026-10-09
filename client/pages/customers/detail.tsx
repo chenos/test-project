@@ -26,6 +26,7 @@ import {
   DetailSkeleton,
 } from './feedback.js';
 import { useResource } from './use-resource.js';
+import { useReturnFocus } from './use-return-focus.js';
 import { TextCell } from './text-cell.js';
 import { Pager } from './pager.js';
 import type {
@@ -36,6 +37,7 @@ import type {
 } from './types.js';
 
 export default function CustomerDetailPage() {
+  useReturnFocus();
   const { customerId = '' } = useParams();
   const { t } = useTranslation();
   const location = useLocation();

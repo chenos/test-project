@@ -81,22 +81,11 @@ function EditFrame({
       { pathname: '..', search: location.search },
       { replace: true },
     );
-    window.setTimeout(
-      () =>
-        Array.from(
-          document.querySelectorAll<HTMLElement>(
-            '[data-customer-return-focus]',
-          ),
-        )
-          .find((element) => !element.closest('[inert]'))
-          ?.focus(),
-      0,
-    );
   };
   const cancel = () => {
     if (stateRef.current.pending) return;
     if (stateRef.current.dirty) setDiscard(true);
-    else leave();
+    else void leave();
   };
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -133,9 +122,10 @@ function EditFrame({
               onStateChange={onStateChange}
               onCancel={cancel}
               onLoadLatest={reload}
+              onMissing={parent.reload}
               onSaved={(row) => {
                 parent.onCustomerSaved(row, !editing);
-                leave();
+                void leave();
               }}
             />
           )}
@@ -153,7 +143,7 @@ function EditFrame({
             <Button variant='outline' onClick={() => setDiscard(false)}>
               {t('customers.discard.keep')}
             </Button>
-            <Button variant='destructive' onClick={leave}>
+            <Button variant='destructive' onClick={() => void leave()}>
               {t('customers.discard.confirm')}
             </Button>
           </AlertDialogFooter>

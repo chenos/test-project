@@ -17,9 +17,11 @@ import { Pager } from './pager.js';
 import { TextCell } from './text-cell.js';
 import { useOwners } from './use-owners.js';
 import { useResource } from './use-resource.js';
+import { useReturnFocus } from './use-return-focus.js';
 import type { Customer, ListResult } from './types.js';
 
 export default function CustomersPage() {
+  useReturnFocus();
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
