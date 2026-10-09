@@ -17,14 +17,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      TMPDIR: ${{ github.workspace }}/storage/ci-tmp
+      # Vite ignores storage/**; watcher fixtures must live outside it.
+      TMPDIR: ${{ github.workspace }}/.work/ci-tmp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       - uses: pnpm/action-setup@v4
-      - run: mkdir -p storage/ci-tmp
+      - run: mkdir -p .work/ci-tmp
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
